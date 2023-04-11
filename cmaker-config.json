@@ -38,8 +38,7 @@
     }
   },
   "scripts": {
-    "dev": "cmkr build --debug; cd ./bin/debug; ./avfx",
-    "run-release": "cmkr build --release; cd ./bin/release; ./avfx",
-    "clean": "rm -rdf ./build**/*"
+    "clean": "rm -rdf ./build**/*",
+    "debug": "cd ./bin/debug/; valgrind --leak-check=full ./avfx"
   }
 }

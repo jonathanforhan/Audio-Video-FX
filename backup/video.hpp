@@ -30,10 +30,11 @@ public:
     static std::unique_ptr<Video> import(const char* path); 
 
     // get data from frame at index n
+    int32_t get_frame_num();
+    const std::vector<Frame*>& get_frames();
     const uint8_t* get_frame_bytes(uint32_t index);
     int32_t get_frame_width(uint32_t index);
     int32_t get_frame_height(uint32_t index);
-    const std::vector<Frame*>& get_frames();
 
 private:
     const char *m_path;

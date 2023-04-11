@@ -30,11 +30,13 @@ bool Video::init() {
 
     // Open video file
     if (avformat_open_input(&pFormatCtx, m_path, NULL, NULL) != 0) {
+        puts("File open fail");
         return false;
     }
 
     // Retrieve stream information
     if(avformat_find_stream_info(pFormatCtx, NULL) < 0) {
+        puts("Stream info fail");
         return false;
     }
 
@@ -51,6 +53,7 @@ bool Video::init() {
     }
 
     if (videoStream == -1) {
+        puts("Video stream fail");
         return false;
     }
 
@@ -163,6 +166,14 @@ Video::~Video() noexcept {
     }
 }
 
+int32_t Video::get_frame_num() {
+    return m_frames.size();
+}
+
+const std::vector<Frame*>& Video::get_frames() {
+    return m_frames;
+}
+
 std::unique_ptr<Video> Video::import(const char* p_path) {
     Video *ret = new Video(p_path);
     if (ret->init()) {
@@ -191,10 +202,6 @@ int32_t Video::get_frame_height(uint32_t p_index) {
         return m_frames[p_index]->height;
     }
     return -1;
-}
-
-const std::vector<Frame*>& Video::get_frames() {
-    return m_frames;
 }
 
 } // namespace avfx
