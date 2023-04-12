@@ -5,6 +5,9 @@
 # files at root will be added to executable automatically like main
 file(GLOB MAIN "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 
+# CMaker treats the subdirectories of src as modules, either added to the
+# exectuable, added to a library or added as some other component
+
 list(APPEND SOURCE_DIRS
     # place sub-dirs that will be added to executable
     "core"
@@ -78,8 +81,17 @@ endforeach()
 ###############################################################################
 ##----------------------------------EXPORT-----------------------------------##
 ###############################################################################
+list(APPEND SOURCES)
 foreach(DIR ${SOURCE_DIRS})
-    RECURSE_DIRS(${DIR} SOURCES)
+    RECURSE_DIRS(${DIR} "S")
+    list(APPEND SOURCES ${S})
+endforeach()
+
+foreach(FD ${MAIN})
+    message(STATUS "CMaker linking: " ${FD})
+endforeach()
+foreach(FD ${SOURCES})
+    message(STATUS "CMaker linking: " ${FD})
 endforeach()
 
 set(APP_SOURCE

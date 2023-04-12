@@ -6,28 +6,15 @@ find_library(AVUTIL_LIBRARY avutil REQUIRED)
 find_library(SWSCALE_LIBRARY swscale REQUIRED)
 find_library(SWRESAMPLE_LIBRARY swresample REQUIRED)
 
-option(GLFW_INSTALL OFF)
-option(GLFW_BUILD_DOCS OFF)
-option(GLFW_BUILD_EXAMPLES OFF)
-option(GLFW_BUILD_TESTS OFF)
-add_subdirectory("${CMAKE_SOURCE_DIR}/extern/glfw/")
+macro(EXTERN_SETUP)
+    # QT's meta-object-compiler
+    set(CMAKE_AUTOMOC ON)
+    find_package(Qt6 COMPONENTS Widgets OpenGLWidgets REQUIRED)
+endmacro()
 
 ### Export to parent scope ###
 
-set(GLAD_SOURCE
-    "${CMAKE_SOURCE_DIR}/extern/glad/src/glad.c"
-    PARENT_SCOPE
-    )
-
-set(EXTERN_INCLUDES
-    "${CMAKE_SOURCE_DIR}/extern/glad/include/"
-    "${CMAKE_SOURCE_DIR}/extern/glfw/include/"
-    PARENT_SCOPE
-    )
-
 set(EXTERN_LIBRARIES
-    glfw
-    ${GLAD_LIBRARIES}
     ${AVCODEC_LIBRARY}
     ${AVFORMAT_LIBRARY}
     ${AVDEVICE_LIBRARY}
@@ -35,6 +22,8 @@ set(EXTERN_LIBRARIES
     ${AVUTIL_LIBRARY}
     ${SWSCALE_LIBRARY}
     ${SWRESAMPLE_LIBRARY}
+    Qt::Widgets
+    Qt::OpenGLWidgets
     PARENT_SCOPE
     )
 
