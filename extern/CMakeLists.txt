@@ -9,7 +9,7 @@ find_library(SWRESAMPLE_LIBRARY swresample REQUIRED)
 macro(EXTERN_SETUP)
     # QT's meta-object-compiler
     set(CMAKE_AUTOMOC ON)
-    find_package(Qt6 COMPONENTS Widgets OpenGLWidgets REQUIRED)
+    find_package(Qt6 COMPONENTS Widgets OpenGLWidgets Multimedia REQUIRED)
 endmacro()
 
 ### Export to parent scope ###
@@ -24,6 +24,7 @@ set(EXTERN_LIBRARIES
     ${SWRESAMPLE_LIBRARY}
     Qt::Widgets
     Qt::OpenGLWidgets
+    Qt::Multimedia
     PARENT_SCOPE
     )
 

@@ -26,7 +26,8 @@
       "build-dir": "build-debug",
       "output": "./bin/debug",
       "flags": [
-        "CMAKE_BUILD_TYPE=Debug"
+        "CMAKE_BUILD_TYPE=Debug",
+        "CMAKER_BUILD_VERBOSE=0"
       ]
     },
     "release": {
