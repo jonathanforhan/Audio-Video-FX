@@ -15,7 +15,61 @@ extern "C" {
 
 namespace avfx {
 
-bool Video::init() {
+Video::Video(const char* path) noexcept
+  : m_path(path),
+    m_frames({}),
+    m_mutex(),
+    m_done(false),
+    m_error(NO_ERROR) {
+    m_frames.reserve(1024);
+}
+
+Video::~Video() noexcept {
+    for (auto& frame : m_frames) {
+        delete frame;
+    }
+}
+
+void Video::stream_decode() {
+    std::thread t(
+            _stream_decode,
+            m_path,
+            &m_frames,
+            &m_mutex,
+            &m_done,
+            &m_error);
+    t.detach();
+}
+
+void Video::log_decode() {
+    switch (m_error) {
+    case NO_ERROR:
+        break;
+    case FILE_ERROR:
+        fprintf(stderr, "FILE ERROR\n");
+        break;
+    case STREAM_NOT_FOUND:
+        fprintf(stderr, "STREAM NOT FOUND");
+        break;
+    case UNSUPPORTED_CODEC:
+        fprintf(stderr, "UNSUPPORTED CODEC");
+        break;
+    case CODEC_OPEN_ERROR:
+        fprintf(stderr, "CODEC OPEN ERROR");
+        break;
+    case MALLOC_ERROR:
+        fprintf(stderr, "MALLOC ERROR");
+        break;
+    }
+}
+
+void Video::_stream_decode(
+        const char* path,
+        std::vector<Frame*>* frames,
+        std::mutex* mutex,
+        bool* done,
+        decode_error* error) {
+
     AVFormatContext* fmt_ctx        = NULL;
     AVCodecParameters* codec_params = NULL;
     AVCodecContext* codec_ctx       = NULL;
@@ -26,25 +80,26 @@ bool Video::init() {
     uint8_t* buffer                 = NULL;
     SwsContext* sws_ctx             = NULL;
 
-
     fmt_ctx = avformat_alloc_context();
     assert(fmt_ctx != NULL);
 
     // open file
-    if (avformat_open_input(&fmt_ctx, m_path, NULL, NULL) != 0) {
-        fprintf(stderr, "Could not open file\n");
-        return false;
+    if (avformat_open_input(&fmt_ctx, path, NULL, NULL) != 0) {
+        mutex->lock();
+        *error = FILE_ERROR;
+        mutex->unlock();
     }
 
     // retreive stream info
     if (avformat_find_stream_info(fmt_ctx, NULL) < 0) {
-        fprintf(stderr, "Stream info not found\n");
-        return false;
+        mutex->lock();
+        *error = STREAM_NOT_FOUND;
+        mutex->unlock();
     }
 
     // dump file info to console
 #if !defined NDEBUG || defined _DEBUG
-    av_dump_format(fmt_ctx, 0, m_path, 0);
+    av_dump_format(fmt_ctx, 0, path, 0);
 #endif
 
     // find first video stream
@@ -56,23 +111,28 @@ bool Video::init() {
         }
     }
 
-    if (video_stream_index == -1)
-        return false;
+    if (video_stream_index == -1) {
+        mutex->lock();
+        *error = STREAM_NOT_FOUND;
+        mutex->unlock();
+    }
 
     codec_params = fmt_ctx->streams[video_stream_index]->codecpar;
     // find decoder for video stream
     codec = avcodec_find_decoder(codec_params->codec_id);
     if (codec == NULL) {
-        fprintf(stderr, "Unsupported codec\n");
-        return false;
+        mutex->lock();
+        *error = UNSUPPORTED_CODEC;
+        mutex->unlock();
     }
 
     // copy context
     codec_ctx = avcodec_alloc_context3(codec);
     assert(codec_ctx != NULL);
     if (avcodec_parameters_to_context(codec_ctx, codec_params) < 0) {
-        fprintf(stderr, "Copy codec failed\n");
-        return false;
+        mutex->lock();
+        *error = MALLOC_ERROR;
+        mutex->unlock();
     }
 
     // assign threads
@@ -81,7 +141,9 @@ bool Video::init() {
 
     // open codec
     if (avcodec_open2(codec_ctx, codec, NULL) < 0) {
-        return false;
+        mutex->lock();
+        *error = CODEC_OPEN_ERROR;
+        mutex->unlock();
     }
 
     // alloc video frame
@@ -89,7 +151,9 @@ bool Video::init() {
     frame_rgb = av_frame_alloc();
     assert(frame_rgb != NULL && frame_yuv != NULL);
     if (frame_rgb == NULL) {
-        return false;
+        mutex->lock();
+        *error = MALLOC_ERROR;
+        mutex->unlock();
     }
 
     int num_bytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24,
@@ -138,7 +202,9 @@ bool Video::init() {
 
             int w = codec_ctx->width;
             int h = codec_ctx->height;
-            m_frames.emplace_back(new Frame(*frame_rgb->data, data_len, w, h));
+            mutex->lock();
+            frames->emplace_back(new Frame(*frame_rgb->data, data_len, w, h));
+            mutex->unlock();
         }
         av_packet_unref(packet);
     }
@@ -149,21 +215,9 @@ bool Video::init() {
     av_frame_free(&frame_rgb);
     avcodec_free_context(&codec_ctx);
 
-    return true;
-}
-
-Video::~Video() noexcept {
-    for (auto& frame : m_frames) {
-        delete frame;
-    }
-}
-
-std::unique_ptr<Video> Video::import(const char* p_path) {
-    std::unique_ptr<Video> v(new Video(p_path));
-    if (v->init())
-        return v;
-    else
-        return nullptr;
+    mutex->lock();
+    *done = true;
+    mutex->unlock();
 }
 
 const std::vector<Frame*>& Video::frames() {
@@ -172,6 +226,10 @@ const std::vector<Frame*>& Video::frames() {
 
 const Frame* Video::frame(int i) {
     return m_frames[i];
+}
+
+size_t Video::frame_count() {
+    return m_frames.size();
 }
 
 } // namespace avfx

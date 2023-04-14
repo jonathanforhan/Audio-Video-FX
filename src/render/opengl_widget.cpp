@@ -8,7 +8,10 @@ OpenGLWidget::OpenGLWidget(QWidget* parent)
     m_vbo(QOpenGLBuffer(QOpenGLBuffer::VertexBuffer)),
     m_ebo(QOpenGLBuffer(QOpenGLBuffer::IndexBuffer)),
     m_textures(std::vector<QOpenGLTexture*>()),
-    m_num_textures(0), m_video(Video::import("samples/example.mp4")) {}
+    m_tex_i(0), m_video("samples/head-pose-face-detection-female-and-male.mp4") {
+
+    m_video.stream_decode();
+}
 
 OpenGLWidget::~OpenGLWidget() {
     makeCurrent();
@@ -16,11 +19,10 @@ OpenGLWidget::~OpenGLWidget() {
     m_vbo.destroy();
     m_ebo.destroy();
     m_program.destroyed();
-    for (size_t i = 0; i < m_video->frames().size(); ++i) {
-        m_textures[i]->destroy();
-        delete m_textures[i];
+    for (auto& texture : m_textures) {
+        texture->destroy();
+        delete texture;
     }
-
     doneCurrent();
 }
 
@@ -72,24 +74,11 @@ void OpenGLWidget::initializeGL() {
     m_vbo.release(QOpenGLBuffer::VertexBuffer);
     m_vao.release();
 
-    size_t n = m_video->frames().size();
-    m_textures.resize(n);
-
-    typedef QOpenGLTexture GLTex;
-    for (size_t i = 0; i < n; ++i) {
-        m_textures[i] = new GLTex(GLTex::Target2D);
-        m_textures[i]->create();
-        m_textures[i]->bind(GLTex::Target2D);
-        m_textures[i]->setWrapMode(GLTex::Repeat);
-        m_textures[i]->setMinificationFilter(GLTex::LinearMipMapLinear);
-        m_textures[i]->setMagnificationFilter(GLTex::Linear);
-
-        int w = m_video->frame(i)->width;
-        int h = m_video->frame(i)->height;
-        QImage img(m_video->frame(i)->data, w, h, QImage::Format_RGB888);
-
-        m_textures[i]->setData(img);
-    }
+    m_video.lock_stream();
+    while (m_video.frame_count() < 1)
+        ;
+    resize(m_video.frame(0)->width, m_video.frame(0)->height);
+    m_video.unlock_stream();
 }
 
 void OpenGLWidget::resizeGL(int w, int h) {
@@ -98,12 +87,34 @@ void OpenGLWidget::resizeGL(int w, int h) {
 }
 
 void OpenGLWidget::paintGL() {
+    typedef QOpenGLTexture GLTex;
+
+    m_video.lock_stream();
+    m_video.log_decode();
+    if (m_tex_i < m_video.frame_count() && m_textures.size() < m_video.frame_count()) {
+        m_textures.emplace_back(new GLTex(GLTex::Target2D));
+        m_textures[m_tex_i]->create();
+        m_textures[m_tex_i]->bind(GLTex::Target2D);
+        m_textures[m_tex_i]->setWrapMode(GLTex::Repeat);
+        m_textures[m_tex_i]->setMinificationFilter(GLTex::LinearMipMapLinear);
+        m_textures[m_tex_i]->setMagnificationFilter(GLTex::Linear);
+
+        int w = m_video.frame(m_tex_i)->width;
+        int h = m_video.frame(m_tex_i)->height;
+        QImage img(m_video.frame(m_tex_i)->data, w, h, QImage::Format_RGB888);
+
+        m_textures[m_tex_i++]->setData(img);
+
+    } else if (m_video.stream_done()) {
+        if (m_tex_i == m_video.frame_count()) {
+            m_tex_i = 0;
+        }
+        m_textures[m_tex_i++]->bind();
+    }
+    m_video.unlock_stream();
+
     m_program.bind();
     m_vao.bind();
-    m_textures[m_num_textures++]->bind();
-    if (m_num_textures == m_video->frames().size()) {
-        m_num_textures = 0;
-    }
 
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 

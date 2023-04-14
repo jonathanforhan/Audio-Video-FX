@@ -29,9 +29,9 @@ private:
     QOpenGLBuffer m_ebo;
     QOpenGLShaderProgram m_program;
     std::vector<QOpenGLTexture*> m_textures;
-    size_t m_num_textures;
+    size_t m_tex_i; // texture incriment
 
-    std::unique_ptr<Video> m_video;
+    Video m_video;
 };
 
 } // namespace avfx
