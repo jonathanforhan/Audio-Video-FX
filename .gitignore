@@ -22,10 +22,13 @@ compile_commands.json
 
 # IDE
 .idea
+.vs
+.vscode
 *-[Bb]uild-*/
 *[Bb]uild-*/
 *[Bb]uild*/
 .cache
+.clang-format
 
 # Roslyn cache directories
 *.ide/

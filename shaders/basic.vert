@@ -7,5 +7,5 @@ out vec2 v_tex_coord;
 
 void main() {
     gl_Position = vec4(pos, 1.0);
-    v_tex_coord = tex_coord;
+    v_tex_coord = vec2(tex_coord.x, -tex_coord.y); // flip on gpu
 };

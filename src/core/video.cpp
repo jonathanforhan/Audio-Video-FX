@@ -4,11 +4,11 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
-#include <libswscale/swscale.h>
 #include <libavutil/imgutils.h>
+#include <libswscale/swscale.h>
 }
 
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55,28,1)
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55, 28, 1)
 #define av_frame_alloc avcodec_alloc_frame
 #define av_frame_free avcodec_free_frame
 #endif
@@ -16,40 +16,41 @@ extern "C" {
 namespace avfx {
 
 bool Video::init() {
-    AVFormatContext *format_ctx = NULL;
-    AVCodecParameters  *codec_params = NULL;
-    AVCodecContext  *codec_ctx = NULL;
-    AVCodec         *codec = NULL;
-    AVFrame         *frame_yuv = NULL;
-    AVFrame         *frame_rgb = NULL;
-    AVPacket        *packet = NULL;
-    uint8_t         *buffer = NULL;
-    SwsContext      *sws_ctx = NULL;
+    AVFormatContext* fmt_ctx        = NULL;
+    AVCodecParameters* codec_params = NULL;
+    AVCodecContext* codec_ctx       = NULL;
+    AVCodec* codec                  = NULL;
+    AVFrame* frame_yuv              = NULL;
+    AVFrame* frame_rgb              = NULL;
+    AVPacket* packet                = NULL;
+    uint8_t* buffer                 = NULL;
+    SwsContext* sws_ctx             = NULL;
 
-    format_ctx = avformat_alloc_context();
-    assert(format_ctx != NULL);
+
+    fmt_ctx = avformat_alloc_context();
+    assert(fmt_ctx != NULL);
 
     // open file
-    if (avformat_open_input(&format_ctx, m_path, NULL, NULL) != 0) {
+    if (avformat_open_input(&fmt_ctx, m_path, NULL, NULL) != 0) {
         fprintf(stderr, "Could not open file\n");
         return false;
     }
 
     // retreive stream info
-    if (avformat_find_stream_info(format_ctx, NULL) < 0) {
+    if (avformat_find_stream_info(fmt_ctx, NULL) < 0) {
         fprintf(stderr, "Stream info not found\n");
         return false;
     }
 
     // dump file info to console
 #if !defined NDEBUG || defined _DEBUG
-    av_dump_format(format_ctx, 0, m_path, 0);
+    av_dump_format(fmt_ctx, 0, m_path, 0);
 #endif
 
     // find first video stream
     int video_stream_index = -1;
-    for (size_t i = 0; i < format_ctx->nb_streams; ++i) {
-        if (format_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO){
+    for (size_t i = 0; i < fmt_ctx->nb_streams; ++i) {
+        if (fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
             video_stream_index = i;
             break;
         }
@@ -58,7 +59,7 @@ bool Video::init() {
     if (video_stream_index == -1)
         return false;
 
-    codec_params = format_ctx->streams[video_stream_index]->codecpar;
+    codec_params = fmt_ctx->streams[video_stream_index]->codecpar;
     // find decoder for video stream
     codec = avcodec_find_decoder(codec_params->codec_id);
     if (codec == NULL) {
@@ -73,6 +74,10 @@ bool Video::init() {
         fprintf(stderr, "Copy codec failed\n");
         return false;
     }
+
+    // assign threads
+    codec_ctx->thread_count = 8;
+    codec_ctx->thread_type  = FF_THREAD_FRAME;
 
     // open codec
     if (avcodec_open2(codec_ctx, codec, NULL) < 0) {
@@ -110,38 +115,35 @@ bool Video::init() {
     packet = av_packet_alloc();
     assert(packet != NULL);
 
-    while (av_read_frame(format_ctx, packet) >= 0) {
+    while (av_read_frame(fmt_ctx, packet) >= 0) {
         if (packet->stream_index != video_stream_index) {
             av_packet_unref(packet);
             continue;
         }
         int res = 0;
-        res = avcodec_send_packet(codec_ctx, packet);
+        res     = avcodec_send_packet(codec_ctx, packet);
         while (res >= 0) {
             res = avcodec_receive_frame(codec_ctx, frame_yuv);
             if (res == AVERROR(EAGAIN) || res == AVERROR_EOF) {
                 break;
-            }
-            else if (res < 0) {
+            } else if (res < 0) {
                 fprintf(stderr, "error while receiving frame from decoder\n");
             }
+
+            size_t data_len = 3 * codec_ctx->width * codec_ctx->height;
+
             sws_scale(sws_ctx, (uint8_t const* const*)frame_yuv->data,
                     frame_yuv->linesize, 0, codec_ctx->height,
                     frame_rgb->data, frame_rgb->linesize);
 
-            Frame *avfx_frame = new Frame;
-            size_t data_len = 3 * codec_ctx->width * codec_ctx->height;
-            buffer = (uint8_t*)malloc(data_len);
-            memcpy(buffer, frame_rgb->data, data_len);
-            avfx_frame->data = buffer;
-            avfx_frame->width = codec_ctx->width;
-            avfx_frame->height = codec_ctx->height;
-            m_frames.push_back(avfx_frame);
+            int w = codec_ctx->width;
+            int h = codec_ctx->height;
+            m_frames.emplace_back(new Frame(*frame_rgb->data, data_len, w, h));
         }
         av_packet_unref(packet);
     }
 
-    avformat_close_input(&format_ctx);
+    avformat_close_input(&fmt_ctx);
     av_packet_free(&packet);
     av_frame_free(&frame_yuv);
     av_frame_free(&frame_rgb);
@@ -152,43 +154,24 @@ bool Video::init() {
 
 Video::~Video() noexcept {
     for (auto& frame : m_frames) {
-        delete frame->data;
+        delete frame;
     }
 }
 
 std::unique_ptr<Video> Video::import(const char* p_path) {
-    Video *ret = new Video(p_path);
-    if (ret->init()) {
-        return std::unique_ptr<Video>(ret);
-    }
-    delete ret;
-    return std::unique_ptr<Video>(nullptr);
-} 
-
-const uint8_t* Video::get_frame_bytes(uint32_t p_index) {
-    if (p_index < m_frames.size()) {
-        return m_frames[p_index]->data;
-    }
-    return nullptr;
+    std::unique_ptr<Video> v(new Video(p_path));
+    if (v->init())
+        return v;
+    else
+        return nullptr;
 }
 
-int32_t Video::get_frame_width(uint32_t p_index) {
-    if (p_index < m_frames.size()) {
-        return m_frames[p_index]->width;
-    }
-    return -1;
-}
-
-int32_t Video::get_frame_height(uint32_t p_index) {
-    if (p_index < m_frames.size()) {
-        return m_frames[p_index]->height;
-    }
-    return -1;
-}
-
-const std::vector<Frame*>& Video::get_frames() {
+const std::vector<Frame*>& Video::frames() {
     return m_frames;
 }
 
-} // namespace avfx
+const Frame* Video::frame(int i) {
+    return m_frames[i];
+}
 
+} // namespace avfx
