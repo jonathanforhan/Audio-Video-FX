@@ -5,6 +5,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/timecode.h>
 #include <libswscale/swscale.h>
 }
 
@@ -37,7 +38,8 @@ void Video::stream_decode() {
             &m_frames,
             &m_mutex,
             &m_done,
-            &m_error);
+            &m_error,
+            &m_frame_rate);
     t.detach();
 }
 
@@ -68,7 +70,8 @@ void Video::_stream_decode(
         std::vector<Frame*>* frames,
         std::mutex* mutex,
         bool* done,
-        decode_error* error) {
+        decode_error* error,
+        double* frame_rate) {
 
     AVFormatContext* fmt_ctx        = NULL;
     AVCodecParameters* codec_params = NULL;
@@ -80,21 +83,24 @@ void Video::_stream_decode(
     uint8_t* buffer                 = NULL;
     SwsContext* sws_ctx             = NULL;
 
+    // thread-safe var assignment
+    auto safe_assign = [&](auto* var, auto x) {
+        mutex->lock();
+        *var = x;
+        mutex->unlock();
+    };
+
     fmt_ctx = avformat_alloc_context();
     assert(fmt_ctx != NULL);
 
     // open file
     if (avformat_open_input(&fmt_ctx, path, NULL, NULL) != 0) {
-        mutex->lock();
-        *error = FILE_ERROR;
-        mutex->unlock();
+        safe_assign(error, FILE_ERROR);
     }
 
     // retreive stream info
     if (avformat_find_stream_info(fmt_ctx, NULL) < 0) {
-        mutex->lock();
-        *error = STREAM_NOT_FOUND;
-        mutex->unlock();
+        safe_assign(error, STREAM_NOT_FOUND);
     }
 
     // dump file info to console
@@ -103,47 +109,37 @@ void Video::_stream_decode(
 #endif
 
     // find first video stream
-    int video_stream_index = -1;
-    for (size_t i = 0; i < fmt_ctx->nb_streams; ++i) {
-        if (fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-            video_stream_index = i;
-            break;
-        }
-    }
-
+    const int video_stream_index = av_find_best_stream(fmt_ctx,
+            AVMEDIA_TYPE_VIDEO, -1, -1, &codec, 0);
     if (video_stream_index == -1) {
-        mutex->lock();
-        *error = STREAM_NOT_FOUND;
-        mutex->unlock();
+        safe_assign(error, STREAM_NOT_FOUND);
     }
+    const AVStream* stream = fmt_ctx->streams[video_stream_index];
+    const double fps       = (double)stream->r_frame_rate.num /
+            (double)stream->r_frame_rate.den;
+    safe_assign(frame_rate, fps);
 
     codec_params = fmt_ctx->streams[video_stream_index]->codecpar;
     // find decoder for video stream
     codec = avcodec_find_decoder(codec_params->codec_id);
     if (codec == NULL) {
-        mutex->lock();
-        *error = UNSUPPORTED_CODEC;
-        mutex->unlock();
+        safe_assign(error, UNSUPPORTED_CODEC);
     }
 
     // copy context
     codec_ctx = avcodec_alloc_context3(codec);
     assert(codec_ctx != NULL);
     if (avcodec_parameters_to_context(codec_ctx, codec_params) < 0) {
-        mutex->lock();
-        *error = MALLOC_ERROR;
-        mutex->unlock();
+        safe_assign(error, MALLOC_ERROR);
     }
 
     // assign threads
-    codec_ctx->thread_count = 8;
+    codec_ctx->thread_count = 6;
     codec_ctx->thread_type  = FF_THREAD_FRAME;
 
     // open codec
     if (avcodec_open2(codec_ctx, codec, NULL) < 0) {
-        mutex->lock();
-        *error = CODEC_OPEN_ERROR;
-        mutex->unlock();
+        safe_assign(error, CODEC_OPEN_ERROR);
     }
 
     // alloc video frame
@@ -151,12 +147,10 @@ void Video::_stream_decode(
     frame_rgb = av_frame_alloc();
     assert(frame_rgb != NULL && frame_yuv != NULL);
     if (frame_rgb == NULL) {
-        mutex->lock();
-        *error = MALLOC_ERROR;
-        mutex->unlock();
+        safe_assign(error, MALLOC_ERROR);
     }
 
-    int num_bytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24,
+    const int num_bytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24,
             codec_ctx->width, codec_ctx->height, 16);
 
     buffer = (uint8_t*)av_malloc(num_bytes * sizeof(uint8_t));
@@ -184,8 +178,7 @@ void Video::_stream_decode(
             av_packet_unref(packet);
             continue;
         }
-        int res = 0;
-        res     = avcodec_send_packet(codec_ctx, packet);
+        int res = avcodec_send_packet(codec_ctx, packet);
         while (res >= 0) {
             res = avcodec_receive_frame(codec_ctx, frame_yuv);
             if (res == AVERROR(EAGAIN) || res == AVERROR_EOF) {
@@ -194,16 +187,17 @@ void Video::_stream_decode(
                 fprintf(stderr, "error while receiving frame from decoder\n");
             }
 
-            size_t data_len = 3 * codec_ctx->width * codec_ctx->height;
+            const size_t data_len = 3 * codec_ctx->width * codec_ctx->height;
 
             sws_scale(sws_ctx, (uint8_t const* const*)frame_yuv->data,
                     frame_yuv->linesize, 0, codec_ctx->height,
                     frame_rgb->data, frame_rgb->linesize);
 
-            int w = codec_ctx->width;
-            int h = codec_ctx->height;
+            const int w = codec_ctx->width;
+            const int h = codec_ctx->height;
             mutex->lock();
-            frames->emplace_back(new Frame(*frame_rgb->data, data_len, w, h));
+            frames->emplace_back(
+                    new Frame(*frame_rgb->data, data_len, w, h));
             mutex->unlock();
         }
         av_packet_unref(packet);
@@ -215,9 +209,7 @@ void Video::_stream_decode(
     av_frame_free(&frame_rgb);
     avcodec_free_context(&codec_ctx);
 
-    mutex->lock();
-    *done = true;
-    mutex->unlock();
+    safe_assign(done, true);
 }
 
 const std::vector<Frame*>& Video::frames() {
@@ -230,6 +222,10 @@ const Frame* Video::frame(int i) {
 
 size_t Video::frame_count() {
     return m_frames.size();
+}
+
+double Video::frame_rate() {
+    return m_frame_rate;
 }
 
 } // namespace avfx

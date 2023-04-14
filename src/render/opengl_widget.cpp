@@ -1,4 +1,5 @@
 #include "opengl_widget.hpp"
+#include <iostream>
 
 namespace avfx {
 
@@ -8,7 +9,9 @@ OpenGLWidget::OpenGLWidget(QWidget* parent)
     m_vbo(QOpenGLBuffer(QOpenGLBuffer::VertexBuffer)),
     m_ebo(QOpenGLBuffer(QOpenGLBuffer::IndexBuffer)),
     m_textures(std::vector<QOpenGLTexture*>()),
-    m_tex_i(0), m_video("samples/head-pose-face-detection-female-and-male.mp4") {
+    m_tex_i(0),
+    m_video("samples/example.mp4"),
+    m_timer(new QTimer(this)) {
 
     m_video.stream_decode();
 }
@@ -78,6 +81,11 @@ void OpenGLWidget::initializeGL() {
     while (m_video.frame_count() < 1)
         ;
     resize(m_video.frame(0)->width, m_video.frame(0)->height);
+
+    connect(m_timer, &QTimer::timeout, this,
+            (void(QWidget::*)()) & QOpenGLWidget::update);
+    m_timer->start(1000 / m_video.frame_rate());
+
     m_video.unlock_stream();
 }
 
@@ -111,7 +119,9 @@ void OpenGLWidget::paintGL() {
         }
         m_textures[m_tex_i++]->bind();
     }
+    // printf("frame num : %lu\n", m_video.frame_count());
     m_video.unlock_stream();
+
 
     m_program.bind();
     m_vao.bind();
@@ -121,7 +131,7 @@ void OpenGLWidget::paintGL() {
     m_vao.release();
     m_program.release();
 
-    update();
+    // update();
 }
 
 } // namespace avfx

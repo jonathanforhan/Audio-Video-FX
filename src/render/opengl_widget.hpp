@@ -8,12 +8,14 @@
 #include <QOpenGLTexture>
 #include <QOpenGLVertexArrayObject>
 #include <QOpenGLWidget>
+#include <QTimer>
 
 #include "core/video.hpp"
 
 namespace avfx {
 
 class OpenGLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
+    Q_OBJECT
 public:
     OpenGLWidget(QWidget* parent = nullptr);
     ~OpenGLWidget();
@@ -32,6 +34,7 @@ private:
     size_t m_tex_i; // texture incriment
 
     Video m_video;
+    QTimer* m_timer;
 };
 
 } // namespace avfx

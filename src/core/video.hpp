@@ -52,6 +52,7 @@ public:
     const std::vector<Frame*>& frames();
     const Frame* frame(int i);
     size_t frame_count();
+    double frame_rate();
 
 private:
     static void _stream_decode(
@@ -59,10 +60,12 @@ private:
             std::vector<Frame*>* frames,
             std::mutex* mutex,
             bool* done,
-            decode_error* error);
+            decode_error* error,
+            double* frame_rate);
 
     const char* m_path;
     std::vector<Frame*> m_frames;
+    double m_frame_rate;
 
     std::mutex m_mutex;
     bool m_done;
