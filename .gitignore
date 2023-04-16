@@ -16,6 +16,10 @@ samples
 # Binaries
 **/[Bb]in/
 
+# Python
+venv
+env
+
 # Scripts
 package.json
 compile_commands.json

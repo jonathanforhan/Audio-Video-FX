@@ -1,8 +1,9 @@
 #include <QApplication>
 #include <QSurfaceFormat>
 
-#include "core/video.hpp"
-#include "render/opengl_widget.hpp"
+#include "media/video.hpp"
+#include "render/gl_context.hpp"
+#include "ui/window.hpp"
 
 using namespace avfx;
 
@@ -15,9 +16,8 @@ int main(int argc, char* argv[]) {
     format.setProfile(QSurfaceFormat::CoreProfile);
     QSurfaceFormat::setDefaultFormat(format);
 
-    // Create a window with an OpenGL context
-    OpenGLWidget widget;
-    widget.show();
+    Window window;
+    window.show();
 
     return app.exec();
 }
